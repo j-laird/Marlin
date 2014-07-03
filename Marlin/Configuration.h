@@ -261,7 +261,7 @@
   #define ENDSTOPPULLUP_ZMAX
   #define ENDSTOPPULLUP_XMIN
   #define ENDSTOPPULLUP_YMIN
-  #define ENDSTOPPULLUP_ZMIN
+  //#define ENDSTOPPULLUP_ZMIN
 #endif
 
 // The pullups are needed if you directly connect a mechanical endswitch between the signal and ground pins.
@@ -301,7 +301,7 @@ const bool Z_MAX_ENDSTOP_INVERTING = false; // set to true to invert the logic o
 // ENDSTOP SETTINGS:
 // Sets direction of endstops when homing; 1=MAX, -1=MIN
 #define X_HOME_DIR -1
-#define Y_HOME_DIR -1
+#define Y_HOME_DIR 1
 #define Z_HOME_DIR -1
 
 #define min_software_endstops true // If true, axis won't move to coordinates less than HOME_POS.
@@ -396,7 +396,7 @@ const bool Z_MAX_ENDSTOP_INVERTING = false; // set to true to invert the logic o
 
 // default settings
 
-#define DEFAULT_AXIS_STEPS_PER_UNIT   {63.36,63.36,2272.72,590}
+#define DEFAULT_AXIS_STEPS_PER_UNIT   {80,80,2020,96}
 #define DEFAULT_MAX_FEEDRATE          {100, 100, 2, 14}    // (mm/sec)    
 #define DEFAULT_MAX_ACCELERATION      {2000,2000,30,10000}    // X, Y, Z, E maximum start speed for accelerated moves. E default values are good for skeinforge 40+, for older versions raise them a lot.
 
@@ -440,17 +440,17 @@ const bool Z_MAX_ENDSTOP_INVERTING = false; // set to true to invert the logic o
 #define ABS_PREHEAT_FAN_SPEED 255   // Insert Value between 0 and 255
 
 //LCD and SD support
-#define ULTRA_LCD  //general lcd support, also 16x2
+//#define ULTRA_LCD  //general lcd support, also 16x2
 //#define DOGLCD  // Support for SPI LCD 128x64 (Controller ST7565R graphic Display Family)
 #define SDSUPPORT // Enable SD Card Support in Hardware Console
 //#define SDSLOW // Use slower SD transfer mode (not normally needed - uncomment if you're getting volume init error)
 //#define ENCODER_PULSES_PER_STEP 1 // Increase if you have a high resolution encoder
 //#define ENCODER_STEPS_PER_MENU_ITEM 5 // Set according to ENCODER_PULSES_PER_STEP or your liking
-#define NEWPANEL
+//#define NEWPANEL
 #define DISABLE_LCD_MOTION_MENU
 
 //#define ULTIMAKERCONTROLLER //as available from the ultimaker online store.
-#define ULTIPANEL  //the ultipanel as on thingiverse
+//#define ULTIPANEL  //the ultipanel as on thingiverse
 
 // The MaKr3d Makr-Panel with graphic controller and SD support
 // http://reprap.org/wiki/MaKr3d_MaKrPanel

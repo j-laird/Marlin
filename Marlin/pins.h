@@ -1561,7 +1561,8 @@
   #define TEMP_BED_PIN        6  // Bed / Analog pin numbering
 #elif MOTHERBOARD == 84 //Printrboard rev F
   #define X_STOP_PIN         35
-  #define Y_STOP_PIN          8
+  #define Y_MIN_PIN -1
+  #define Y_MAX_PIN  12
   #define Z_STOP_PIN         36
   #define TEMP_0_PIN          1  // Extruder / Analog pin numbering
   #define TEMP_BED_PIN        0  // Bed / Analog pin numbering
