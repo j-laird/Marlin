@@ -89,51 +89,6 @@
 #define ENDSTOPS_ONLY_FOR_HOMING // If defined the endstops will only be used for homing
 
 
-//// AUTOSET LOCATIONS OF LIMIT SWITCHES
-//// Added by ZetaPhoenix 09-15-2012
-#ifdef MANUAL_HOME_POSITIONS  // Use manual limit switch locations
-  #define X_HOME_POS MANUAL_X_HOME_POS
-  #define Y_HOME_POS MANUAL_Y_HOME_POS
-  #define Z_HOME_POS MANUAL_Z_HOME_POS
-#else //Set min/max homing switch positions based upon homing direction and min/max travel limits
-  //X axis
-  #if X_HOME_DIR == -1
-    #ifdef BED_CENTER_AT_0_0
-      #define X_HOME_POS X_MAX_LENGTH * -0.5
-    #else
-      #define X_HOME_POS base_min_pos[0]
-    #endif //BED_CENTER_AT_0_0
-  #else    
-    #ifdef BED_CENTER_AT_0_0
-      #define X_HOME_POS X_MAX_LENGTH * 0.5
-    #else
-      #define X_HOME_POS base_max_pos[0]
-    #endif //BED_CENTER_AT_0_0
-  #endif //X_HOME_DIR == -1
-  
-  //Y axis
-  #if Y_HOME_DIR == -1
-    #ifdef BED_CENTER_AT_0_0
-      #define Y_HOME_POS Y_MAX_LENGTH * -0.5
-    #else
-      #define Y_HOME_POS base_min_pos[1]
-    #endif //BED_CENTER_AT_0_0
-  #else    
-    #ifdef BED_CENTER_AT_0_0
-      #define Y_HOME_POS Y_MAX_LENGTH * 0.5
-    #else
-      #define Y_HOME_POS base_max_pos[1]
-    #endif //BED_CENTER_AT_0_0
-  #endif //Y_HOME_DIR == -1
-  
-  // Z axis
-  #if Z_HOME_DIR == -1 //BED_CENTER_AT_0_0 not used
-    #define Z_HOME_POS base_min_pos[2]
-  #else    
-    #define Z_HOME_POS base_max_pos[2]
-  #endif //Z_HOME_DIR == -1
-#endif //End auto min/max positions
-//END AUTOSET LOCATIONS OF LIMIT SWITCHES -ZP
 
 
 //#define Z_LATE_ENABLE // Enable Z the last moment. Needed if your Z driver overheats.

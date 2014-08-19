@@ -353,51 +353,51 @@ ISR(TIMER1_COMPA_vect)
     if((out_bits & (1<<X_AXIS))!=0){
       #ifdef DUAL_X_CARRIAGE
         if (extruder_duplication_enabled){
-          WRITE(X_DIR_PIN, INVERT_X_DIR);
-          WRITE(X2_DIR_PIN, INVERT_X_DIR);
+          WRITE(X_DIR_PIN, reverse_motor[X_AXIS]);
+          WRITE(X2_DIR_PIN, reverse_motor[X_AXIS]);
         }
         else{
           if (current_block->active_extruder != 0)
-            WRITE(X2_DIR_PIN, INVERT_X_DIR);
+            WRITE(X2_DIR_PIN, reverse_motor[X_AXIS]);
           else
-            WRITE(X_DIR_PIN, INVERT_X_DIR);
+            WRITE(X_DIR_PIN, reverse_motor[X_AXIS]);
         }
       #else
-        WRITE(X_DIR_PIN, INVERT_X_DIR);
+        WRITE(X_DIR_PIN, reverse_motor[X_AXIS]);
       #endif        
       count_direction[X_AXIS]=-1;
     }
     else{
       #ifdef DUAL_X_CARRIAGE
         if (extruder_duplication_enabled){
-          WRITE(X_DIR_PIN, !INVERT_X_DIR);
-          WRITE(X2_DIR_PIN, !INVERT_X_DIR);
+          WRITE(X_DIR_PIN, !reverse_motor[X_AXIS]);
+          WRITE(X2_DIR_PIN, !reverse_motor[X_AXIS]);
         }
         else{
           if (current_block->active_extruder != 0)
-            WRITE(X2_DIR_PIN, !INVERT_X_DIR);
+            WRITE(X2_DIR_PIN, !reverse_motor[X_AXIS]);
           else
-            WRITE(X_DIR_PIN, !INVERT_X_DIR);
+            WRITE(X_DIR_PIN, !reverse_motor[X_AXIS]);
         }
       #else
-        WRITE(X_DIR_PIN, !INVERT_X_DIR);
+        WRITE(X_DIR_PIN, !reverse_motor[X_AXIS]);
       #endif        
       count_direction[X_AXIS]=1;
     }
     if((out_bits & (1<<Y_AXIS))!=0){
-      WRITE(Y_DIR_PIN, INVERT_Y_DIR);
+      WRITE(Y_DIR_PIN, reverse_motor[Y_AXIS]);
 	  
 	  #ifdef Y_DUAL_STEPPER_DRIVERS
-	    WRITE(Y2_DIR_PIN, !(INVERT_Y_DIR == INVERT_Y2_VS_Y_DIR));
+	    WRITE(Y2_DIR_PIN, !(reverse_motor[Y_AXIS] == INVERT_Y2_VS_Y_DIR));
 	  #endif
 	  
       count_direction[Y_AXIS]=-1;
     }
     else{
-      WRITE(Y_DIR_PIN, !INVERT_Y_DIR);
+      WRITE(Y_DIR_PIN, !reverse_motor[Y_AXIS]);
 	  
 	  #ifdef Y_DUAL_STEPPER_DRIVERS
-	    WRITE(Y2_DIR_PIN, (INVERT_Y_DIR == INVERT_Y2_VS_Y_DIR));
+	    WRITE(Y2_DIR_PIN, (reverse_motor[Y_AXIS] == INVERT_Y2_VS_Y_DIR));
 	  #endif
 	  
       count_direction[Y_AXIS]=1;
@@ -413,19 +413,20 @@ ISR(TIMER1_COMPA_vect)
       {
         #ifdef DUAL_X_CARRIAGE
         // with 2 x-carriages, endstops are only checked in the homing direction for the active extruder
-        if ((current_block->active_extruder == 0 && X_HOME_DIR == -1) 
+        if ((current_block->active_extruder == 0 && home_dir[X_AXIS] == -1) 
             || (current_block->active_extruder != 0 && X2_HOME_DIR == -1))
         #endif          
         {
-          #if defined(X_MIN_PIN) && X_MIN_PIN > -1
-            bool x_min_endstop=(READ(X_MIN_PIN) != X_MIN_ENDSTOP_INVERTING);
+          if(min_pin[X_AXIS] > -1)
+		  {
+            bool x_min_endstop=(READ(X_STOP_PIN) != X_MIN_ENDSTOP_INVERTING);
             if(x_min_endstop && old_x_min_endstop && (current_block->steps_x > 0)) {
               endstops_trigsteps[X_AXIS] = count_position[X_AXIS];
               endstop_x_hit=true;
               step_events_completed = current_block->step_event_count;
             }
             old_x_min_endstop = x_min_endstop;
-          #endif
+          }
         }
       }
     }
@@ -434,19 +435,19 @@ ISR(TIMER1_COMPA_vect)
       {
         #ifdef DUAL_X_CARRIAGE
         // with 2 x-carriages, endstops are only checked in the homing direction for the active extruder
-        if ((current_block->active_extruder == 0 && X_HOME_DIR == 1) 
+        if ((current_block->active_extruder == 0 && home_dir[X_AXIS] == 1) 
             || (current_block->active_extruder != 0 && X2_HOME_DIR == 1))
         #endif          
         {
-          #if defined(X_MAX_PIN) && X_MAX_PIN > -1
-            bool x_max_endstop=(READ(X_MAX_PIN) != X_MAX_ENDSTOP_INVERTING);
+          if(max_pin[X_AXIS] > -1){
+            bool x_max_endstop=(READ(X_STOP_PIN) != X_MAX_ENDSTOP_INVERTING);
             if(x_max_endstop && old_x_max_endstop && (current_block->steps_x > 0)){
               endstops_trigsteps[X_AXIS] = count_position[X_AXIS];
               endstop_x_hit=true;
               step_events_completed = current_block->step_event_count;
             }
             old_x_max_endstop = x_max_endstop;
-          #endif
+          }
         }
       }
     }
@@ -458,72 +459,72 @@ ISR(TIMER1_COMPA_vect)
     #endif
       CHECK_ENDSTOPS
       {
-        #if defined(Y_MIN_PIN) && Y_MIN_PIN > -1
-          bool y_min_endstop=(READ(Y_MIN_PIN) != Y_MIN_ENDSTOP_INVERTING);
+        if(min_pin[Y_AXIS] > -1){
+          bool y_min_endstop=(READ(Y_STOP_PIN) != Y_MIN_ENDSTOP_INVERTING);
           if(y_min_endstop && old_y_min_endstop && (current_block->steps_y > 0)) {
             endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS];
             endstop_y_hit=true;
             step_events_completed = current_block->step_event_count;
           }
           old_y_min_endstop = y_min_endstop;
-        #endif
+        }
       }
     }
     else { // +direction
       CHECK_ENDSTOPS
       {
-        #if defined(Y_MAX_PIN) && Y_MAX_PIN > -1
-          bool y_max_endstop=(READ(Y_MAX_PIN) != Y_MAX_ENDSTOP_INVERTING);
+        if (max_pin[Y_AXIS] > -1){
+          bool y_max_endstop=(READ(Y_STOP_PIN) != Y_MAX_ENDSTOP_INVERTING);
           if(y_max_endstop && old_y_max_endstop && (current_block->steps_y > 0)){
             endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS];
             endstop_y_hit=true;
             step_events_completed = current_block->step_event_count;
           }
           old_y_max_endstop = y_max_endstop;
-        #endif
+        }
       }
     }
 
     if ((out_bits & (1<<Z_AXIS)) != 0) {   // -direction
-      WRITE(Z_DIR_PIN,INVERT_Z_DIR);
+      WRITE(Z_DIR_PIN,reverse_motor[Z_AXIS]);
       
       #ifdef Z_DUAL_STEPPER_DRIVERS
-        WRITE(Z2_DIR_PIN,INVERT_Z_DIR);
+        WRITE(Z2_DIR_PIN,reverse_motor[Z_AXIS]);
       #endif
 
       count_direction[Z_AXIS]=-1;
       CHECK_ENDSTOPS
       {
-        #if defined(Z_MIN_PIN) && Z_MIN_PIN > -1
-          bool z_min_endstop=(READ(Z_MIN_PIN) != Z_MIN_ENDSTOP_INVERTING);
+        if(min_pin[Z_AXIS] > -1){
+          bool z_min_endstop=(READ(Z_STOP_PIN) != Z_MIN_ENDSTOP_INVERTING);
           if(z_min_endstop && old_z_min_endstop && (current_block->steps_z > 0)) {
             endstops_trigsteps[Z_AXIS] = count_position[Z_AXIS];
             endstop_z_hit=true;
             step_events_completed = current_block->step_event_count;
           }
           old_z_min_endstop = z_min_endstop;
-        #endif
+		}
       }
     }
     else { // +direction
-      WRITE(Z_DIR_PIN,!INVERT_Z_DIR);
+      WRITE(Z_DIR_PIN,!reverse_motor[Z_AXIS]);
 
       #ifdef Z_DUAL_STEPPER_DRIVERS
-        WRITE(Z2_DIR_PIN,!INVERT_Z_DIR);
+        WRITE(Z2_DIR_PIN,!reverse_motor[Z_AXIS]);
       #endif
 
       count_direction[Z_AXIS]=1;
       CHECK_ENDSTOPS
       {
-        #if defined(Z_MAX_PIN) && Z_MAX_PIN > -1
-          bool z_max_endstop=(READ(Z_MAX_PIN) != Z_MAX_ENDSTOP_INVERTING);
+        if(max_pin[Z_AXIS] > -1){
+          bool z_max_endstop=(READ(Z_STOP_PIN) != Z_MAX_ENDSTOP_INVERTING);
           if(z_max_endstop && old_z_max_endstop && (current_block->steps_z > 0)) {
             endstops_trigsteps[Z_AXIS] = count_position[Z_AXIS];
             endstop_z_hit=true;
             step_events_completed = current_block->step_event_count;
           }
           old_z_max_endstop = z_max_endstop;
-        #endif
+        }
       }
     }
 
@@ -720,12 +721,12 @@ ISR(TIMER1_COMPA_vect)
       if (e_steps[0] != 0) {
         WRITE(E0_STEP_PIN, INVERT_E_STEP_PIN);
         if (e_steps[0] < 0) {
-          WRITE(E0_DIR_PIN, INVERT_E0_DIR);
+          WRITE(E0_DIR_PIN, reverse_motor[E_AXIS]);
           e_steps[0]++;
           WRITE(E0_STEP_PIN, !INVERT_E_STEP_PIN);
         }
         else if (e_steps[0] > 0) {
-          WRITE(E0_DIR_PIN, !INVERT_E0_DIR);
+          WRITE(E0_DIR_PIN, !reverse_motor[E_AXIS]);
           e_steps[0]--;
           WRITE(E0_STEP_PIN, !INVERT_E_STEP_PIN);
         }
@@ -843,50 +844,19 @@ void st_init()
 
   //endstops and pullups
 
-  #if defined(X_MIN_PIN) && X_MIN_PIN > -1
-    SET_INPUT(X_MIN_PIN);
-    #ifdef ENDSTOPPULLUP_XMIN
-      WRITE(X_MIN_PIN,HIGH);
-    #endif
+  // this section radically changed for Printrbot Marlin fork
+  // to support runtime-configurable 
+  
+  SET_INPUT(X_STOP_PIN);
+  SET_INPUT(Y_STOP_PIN);
+  SET_INPUT(Z_STOP_PIN);
+  #ifdef ENDSTOPPULLUPS
+	WRITE(X_STOP_PIN,HIGH);
+	WRITE(Y_STOP_PIN,HIGH);
+	WRITE(Z_STOP_PIN,HIGH);
   #endif
-
-  #if defined(Y_MIN_PIN) && Y_MIN_PIN > -1
-    SET_INPUT(Y_MIN_PIN);
-    #ifdef ENDSTOPPULLUP_YMIN
-      WRITE(Y_MIN_PIN,HIGH);
-    #endif
-  #endif
-
-  #if defined(Z_MIN_PIN) && Z_MIN_PIN > -1
-    SET_INPUT(Z_MIN_PIN);
-    #ifdef ENDSTOPPULLUP_ZMIN
-      WRITE(Z_MIN_PIN,HIGH);
-    #endif
-  #endif
-
-  #if defined(X_MAX_PIN) && X_MAX_PIN > -1
-    SET_INPUT(X_MAX_PIN);
-    #ifdef ENDSTOPPULLUP_XMAX
-      WRITE(X_MAX_PIN,HIGH);
-    #endif
-  #endif
-
-  #if defined(Y_MAX_PIN) && Y_MAX_PIN > -1
-    SET_INPUT(Y_MAX_PIN);
-    #ifdef ENDSTOPPULLUP_YMAX
-      WRITE(Y_MAX_PIN,HIGH);
-    #endif
-  #endif
-
-  #if defined(Z_MAX_PIN) && Z_MAX_PIN > -1
-    SET_INPUT(Z_MAX_PIN);
-    #ifdef ENDSTOPPULLUP_ZMAX
-      WRITE(Z_MAX_PIN,HIGH);
-    #endif
-  #endif
-
-
-  //Initialize Step Pins
+  
+   //Initialize Step Pins
   #if defined(X_STEP_PIN) && (X_STEP_PIN > -1)
     SET_OUTPUT(X_STEP_PIN);
     WRITE(X_STEP_PIN,INVERT_X_STEP_PIN);
@@ -1004,13 +974,11 @@ long st_get_position(uint8_t axis)
   return count_pos;
 }
 
-#ifdef ENABLE_AUTO_BED_LEVELING
 float st_get_position_mm(uint8_t axis)
 {
   float steper_position_in_steps = st_get_position(axis);
   return steper_position_in_steps / axis_steps_per_unit[axis];
 }
-#endif  // ENABLE_AUTO_BED_LEVELING
 
 void finishAndDisableSteppers()
 {
@@ -1047,9 +1015,9 @@ void babystep(const uint8_t axis,const bool direction)
     uint8_t old_x_dir_pin= READ(X_DIR_PIN);  //if dualzstepper, both point to same direction.
    
     //setup new step
-    WRITE(X_DIR_PIN,(INVERT_X_DIR)^direction);
+    WRITE(X_DIR_PIN,(reverse_motor[X_AXIS])^direction);
     #ifdef DUAL_X_CARRIAGE
-      WRITE(X2_DIR_PIN,(INVERT_X_DIR)^direction);
+      WRITE(X2_DIR_PIN,(reverse_motor[X_AXIS])^direction);
     #endif
     
     //perform step 
@@ -1079,9 +1047,9 @@ void babystep(const uint8_t axis,const bool direction)
     uint8_t old_y_dir_pin= READ(Y_DIR_PIN);  //if dualzstepper, both point to same direction.
    
     //setup new step
-    WRITE(Y_DIR_PIN,(INVERT_Y_DIR)^direction);
+    WRITE(Y_DIR_PIN,(reverse_motor[Y_AXIS])^direction);
     #ifdef DUAL_Y_CARRIAGE
-      WRITE(Y2_DIR_PIN,(INVERT_Y_DIR)^direction);
+      WRITE(Y2_DIR_PIN,(reverse_motor[Y_AXIS])^direction);
     #endif
     
     //perform step 
@@ -1112,9 +1080,9 @@ void babystep(const uint8_t axis,const bool direction)
     enable_z();
     uint8_t old_z_dir_pin= READ(Z_DIR_PIN);  //if dualzstepper, both point to same direction.
     //setup new step
-    WRITE(Z_DIR_PIN,(INVERT_Z_DIR)^direction^BABYSTEP_INVERT_Z);
+    WRITE(Z_DIR_PIN,(reverse_motor[Z_AXIS])^direction^BABYSTEP_INVERT_Z);
     #ifdef Z_DUAL_STEPPER_DRIVERS
-      WRITE(Z2_DIR_PIN,(INVERT_Z_DIR)^direction^BABYSTEP_INVERT_Z);
+      WRITE(Z2_DIR_PIN,(reverse_motor[Z_AXIS])^direction^BABYSTEP_INVERT_Z);
     #endif
     //perform step 
     WRITE(Z_STEP_PIN, !INVERT_Z_STEP_PIN); 
@@ -1148,9 +1116,9 @@ void babystep(const uint8_t axis,const bool direction)
     uint8_t old_y_dir_pin= READ(Y_DIR_PIN);  
     uint8_t old_z_dir_pin= READ(Z_DIR_PIN);  
     //setup new step
-    WRITE(X_DIR_PIN,(INVERT_X_DIR)^direction^BABYSTEP_INVERT_Z);
-    WRITE(Y_DIR_PIN,(INVERT_Y_DIR)^direction^BABYSTEP_INVERT_Z);
-    WRITE(Z_DIR_PIN,(INVERT_Z_DIR)^direction^BABYSTEP_INVERT_Z);
+    WRITE(X_DIR_PIN,(reverse_motor[X_AXIS])^direction^BABYSTEP_INVERT_Z);
+    WRITE(Y_DIR_PIN,(reverse_motor[Y_AXIS])^direction^BABYSTEP_INVERT_Z);
+    WRITE(Z_DIR_PIN,(reverse_motor[Z_AXIS])^direction^BABYSTEP_INVERT_Z);
     
     //perform step 
     WRITE(X_STEP_PIN, !INVERT_X_STEP_PIN); 

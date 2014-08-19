@@ -29,12 +29,11 @@
 
 #include "Marlin.h"
 
-#ifdef ENABLE_AUTO_BED_LEVELING
+
 #include "vector_3.h"
-  #ifdef ACCURATE_BED_LEVELING
-    #include "qr_solve.h"
-  #endif
-#endif // ENABLE_AUTO_BED_LEVELING
+#ifdef ACCURATE_BED_LEVELING
+  #include "qr_solve.h"
+#endif
 
 #include "ultralcd.h"
 #include "planner.h"
@@ -155,21 +154,24 @@
 // M302 - Allow cold extrudes, or set the minimum extrude S<temperature>.
 // M303 - PID relay autotune S<temperature> sets the target temperature. (default target temperature = 150C)
 // M304 - Set bed PID parameters P I and D
+// M350 - Set microstepping mode.
+// M351 - Toggle MS1 MS2 pins directly.
 // M400 - Finish all moves
 // M401 - Lower z-probe if present
 // M402 - Raise z-probe if present
-// M500 - stores paramters in EEPROM
+// M500 - stores parameters in EEPROM
 // M501 - reads parameters from EEPROM (if you need reset them after you changed them temporarily).
-// M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to.
+// M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to.  Optional argument Snnnn (for Printrbot) loads defaults per model.
 // M503 - print the current settings (from memory not from eeprom)
+// M504 - set endstop seek direction (-1 = toward min, 1 = toward max)
+// M505 - set motor reversal (0 = normal operation, 1 = reversed)
+// M506 - set autolevel function off(0) or on (1)
 // M540 - Use S[0|1] to enable or disable the stop SD card print on endstop hit (requires ABORT_ON_ENDSTOP_HIT_FEATURE_ENABLED)
 // M600 - Pause for filament change X[pos] Y[pos] Z[relative lift] E[initial retract] L[later retract distance for removal]
 // M666 - set delta endstop adjustemnt
 // M605 - Set dual x-carriage movement mode: S<mode> [ X<duplication x-offset> R<duplication temp offset> ]
 // M907 - Set digital trimpot motor current using axis codes.
 // M908 - Control digital trimpot directly.
-// M350 - Set microstepping mode.
-// M351 - Toggle MS1 MS2 pins directly.
 // M928 - Start SD logging (M928 filename.g) - ended by M29
 // M999 - Restart after being stopped by error
 
@@ -199,6 +201,13 @@ float endstop_adj[3]={0,0,0};
 float min_pos[3] = { X_MIN_POS_DEFAULT, Y_MIN_POS_DEFAULT, Z_MIN_POS_DEFAULT };
 float max_pos[3] = { X_MAX_POS_DEFAULT, Y_MAX_POS_DEFAULT, Z_MAX_POS_DEFAULT };
 bool axis_known_position[3] = {false, false, false};
+bool enable_auto_bed_leveling;
+int home_dir[3]; // direction axis moves to seek endstop: -1 = negative direction, 1 = positive direction
+int home_pos[3]; // home position value (mm) - derived based on home_dir[]
+int min_pin[3];  //-1 if undefined (home at max for that axis), or pin number of that axis' endstop if endstop @ min.
+int max_pin[3];  //-1 if undefined (home at min for that axis), or pin number of that axis' endstop if endstop @ max.
+bool reverse_motor[4]; // allows for motor reversal (as req'd when moving from geared to aluminum extruder)
+
 
 // Extruder offset
 #if EXTRUDERS > 1
@@ -305,6 +314,7 @@ void serial_echopair_P(const char *s_P, double v)
     { serialprintPGM(s_P); SERIAL_ECHO(v); }
 void serial_echopair_P(const char *s_P, unsigned long v)
     { serialprintPGM(s_P); SERIAL_ECHO(v); }
+bool setPrintrbotModelDefaults(int);
 
 extern "C"{
   extern unsigned int __bss_end;
@@ -424,7 +434,7 @@ void servo_init()
   }
   #endif
 
-  #if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+  #if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
   delay(PROBE_SERVO_DEACTIVATION_DELAY);
   servos[servo_endstops[Z_AXIS]].detach();
   #endif
@@ -747,19 +757,23 @@ static inline type array(int axis)			\
     { type temp[3] = { X_##CONFIG, Y_##CONFIG, Z_##CONFIG };\
       return temp[axis];}
 
-XYZ_DYN_FROM_CONFIG(float, base_home_pos,   HOME_POS);
-XYZ_DYN_FROM_CONFIG(float, max_length, MAX_LENGTH);
+//XYZ_DYN_FROM_CONFIG(float, base_home_pos,   HOME_POS);
+//XYZ_DYN_FROM_CONFIG(float, max_length, MAX_LENGTH);
+
+static float max_length(int axis)
+{
+	return base_max_pos[axis] - base_min_pos[axis];
+}
+
 XYZ_CONSTS_FROM_CONFIG(float, home_retract_mm, HOME_RETRACT_MM);
-XYZ_CONSTS_FROM_CONFIG(signed char, home_dir,  HOME_DIR);
 
 #ifdef DUAL_X_CARRIAGE
   #if EXTRUDERS == 1 || defined(COREXY) \
       || !defined(X2_ENABLE_PIN) || !defined(X2_STEP_PIN) || !defined(X2_DIR_PIN) \
-      || !defined(X2_HOME_POS) || !defined(X2_MIN_POS) || !defined(X2_MAX_POS) \
-      || !defined(X_MAX_PIN) || X_MAX_PIN < 0
+      || !defined(X2_HOME_POS) || !defined(X2_MIN_POS) || !defined(X2_MAX_POS) 
     #error "Missing or invalid definitions for DUAL_X_CARRIAGE mode."
   #endif
-  #if X_HOME_DIR != -1 || X2_HOME_DIR != 1
+  #if X2_HOME_DIR != 1
     #error "Please use canonical x-carriage assignment" // the x-carriages are defined by their homing directions
   #endif
 
@@ -770,7 +784,7 @@ static int dual_x_carriage_mode = DEFAULT_DUAL_X_CARRIAGE_MODE;
 
 static float x_home_pos(int extruder) {
   if (extruder == 0)
-    return base_home_pos(X_AXIS) + add_homeing[X_AXIS];
+    return home_pos(X_AXIS) + add_homeing[X_AXIS];
   else
     // In dual carriage mode the extruder offset provides an override of the
     // second X-carriage offset when homed - otherwise X2_HOME_POS is used.
@@ -780,7 +794,7 @@ static float x_home_pos(int extruder) {
 }
 
 static int x_home_dir(int extruder) {
-  return (extruder == 0) ? X_HOME_DIR : X2_HOME_DIR;
+  return (extruder == 0) ? home_dir[X_AXIS] : X2_HOME_DIR;
 }
 
 static float inactive_extruder_x_pos = X2_MAX_POS; // used in mode 0 & 1
@@ -793,10 +807,9 @@ bool extruder_duplication_enabled = false; // used in mode 2
 #endif //DUAL_X_CARRIAGE    
 float base_min_pos[3] = { X_MIN_POS_DEFAULT, Y_MIN_POS_DEFAULT, Z_MIN_POS_DEFAULT };
 float base_max_pos[3] = { X_MAX_POS_DEFAULT, Y_MAX_POS_DEFAULT, Z_MAX_POS_DEFAULT };
-#ifdef ENABLE_AUTO_BED_LEVELING
 float bed_level_probe_offset[3] = {X_PROBE_OFFSET_FROM_EXTRUDER_DEFAULT,
 	Y_PROBE_OFFSET_FROM_EXTRUDER_DEFAULT, -Z_PROBE_OFFSET_FROM_EXTRUDER_DEFAULT};
-#endif
+
 
 static void axis_is_at_home(int axis) {
 #ifdef DUAL_X_CARRIAGE
@@ -808,7 +821,7 @@ static void axis_is_at_home(int axis) {
       return;
     }
     else if (dual_x_carriage_mode == DXC_DUPLICATION_MODE && active_extruder == 0) {
-      current_position[X_AXIS] = base_home_pos(X_AXIS) + add_homeing[X_AXIS];
+      current_position[X_AXIS] = home_pos(X_AXIS) + add_homeing[X_AXIS];
       min_pos[X_AXIS] =          base_min_pos(X_AXIS) + add_homeing[X_AXIS]; 
       max_pos[X_AXIS] =          min(base_max_pos(X_AXIS) + add_homeing[X_AXIS], 
                                   max(extruder_offset[X_AXIS][1], X2_MAX_POS) - duplicate_extruder_x_offset);
@@ -816,12 +829,11 @@ static void axis_is_at_home(int axis) {
     }
   }
 #endif
-  current_position[axis] = base_home_pos(axis) + add_homeing[axis];
+  current_position[axis] = home_pos[axis] + add_homeing[axis];
   min_pos[axis] =          base_min_pos[axis] + add_homeing[axis];
   max_pos[axis] =          base_max_pos[axis] + add_homeing[axis];
 }
 
-#ifdef ENABLE_AUTO_BED_LEVELING
 #ifdef ACCURATE_BED_LEVELING
 static void set_bed_level_equation_lsq(double *plane_equation_coefficients)
 {
@@ -953,11 +965,11 @@ static void engage_z_probe() {
     // Engage Z Servo endstop if enabled
     #ifdef SERVO_ENDSTOPS
     if (servo_endstops[Z_AXIS] > -1) {
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+#if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
         servos[servo_endstops[Z_AXIS]].attach(0);
 #endif
         servos[servo_endstops[Z_AXIS]].write(servo_endstop_angles[Z_AXIS * 2]);
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+#if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
         delay(PROBE_SERVO_DEACTIVATION_DELAY);
         servos[servo_endstops[Z_AXIS]].detach();
 #endif
@@ -969,11 +981,11 @@ static void retract_z_probe() {
     // Retract Z Servo endstop if enabled
     #ifdef SERVO_ENDSTOPS
     if (servo_endstops[Z_AXIS] > -1) {
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+#if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
         servos[servo_endstops[Z_AXIS]].attach(0);
 #endif
         servos[servo_endstops[Z_AXIS]].write(servo_endstop_angles[Z_AXIS * 2 + 1]);
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+#if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
         delay(PROBE_SERVO_DEACTIVATION_DELAY);
         servos[servo_endstops[Z_AXIS]].detach();
 #endif
@@ -981,17 +993,14 @@ static void retract_z_probe() {
     #endif
 }
 
-#endif // #ifdef ENABLE_AUTO_BED_LEVELING
 
 static void homeaxis(int axis) {
-#define HOMEAXIS_DO(LETTER) \
-  ((LETTER##_MIN_PIN > -1 && LETTER##_HOME_DIR==-1) || (LETTER##_MAX_PIN > -1 && LETTER##_HOME_DIR==1))
 
-  if (axis==X_AXIS ? HOMEAXIS_DO(X) :
-      axis==Y_AXIS ? HOMEAXIS_DO(Y) :
-      axis==Z_AXIS ? HOMEAXIS_DO(Z) :
+  if (axis==X_AXIS ? ((min_pin[X_AXIS] > -1 && home_dir[X_AXIS]==-1) || (max_pin[X_AXIS] > -1 && home_dir[X_AXIS]==1)) :
+      axis==Y_AXIS ? ((min_pin[Y_AXIS] > -1 && home_dir[Y_AXIS]==-1) || (max_pin[Y_AXIS] > -1 && home_dir[Y_AXIS]==1)) :
+      axis==Z_AXIS ? ((min_pin[Z_AXIS] > -1 && home_dir[Z_AXIS]==-1) || (max_pin[Z_AXIS] > -1 && home_dir[Z_AXIS]==1)) :
       0) {
-    int axis_home_dir = home_dir(axis);
+    int axis_home_dir = home_dir[axis];
 #ifdef DUAL_X_CARRIAGE
     if (axis == X_AXIS)
       axis_home_dir = x_home_dir(active_extruder);
@@ -1003,7 +1012,7 @@ static void homeaxis(int axis) {
 
     // Engage Servo endstop if enabled
     #ifdef SERVO_ENDSTOPS
-      #if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+      #if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
         if (axis==Z_AXIS) {
           engage_z_probe();
         }
@@ -1014,16 +1023,24 @@ static void homeaxis(int axis) {
       }
     #endif
 
-    destination[axis] = 1.5 * max_length(axis) * axis_home_dir;
-    feedrate = homing_feedrate[axis];
+    // go toward endstop with maximum attempt 1.5x full axis length
+	destination[axis] = 1.5 * max_length(axis) * axis_home_dir;
+	// JL TODO: REMOVE DEBUG CODE:
+	//SERIAL_ECHOPAIR("Set Destination:" , destination[axis]);
+	//SERIAL_ECHOPAIR("minpin:", (float) min_pin[axis]);
+	//SERIAL_ECHOPAIR("maxpin:", (float) max_pin[axis]);
+	
+	feedrate = homing_feedrate[axis];
     plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-    st_synchronize();
+    // go toward endstop
+	st_synchronize();
 
     current_position[axis] = 0;
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
     destination[axis] = -home_retract_mm(axis) * axis_home_dir;
     plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-    st_synchronize();
+    // back off retract amount
+	st_synchronize();
 
     destination[axis] = 2*home_retract_mm(axis) * axis_home_dir;
 #ifdef DELTA
@@ -1032,7 +1049,8 @@ static void homeaxis(int axis) {
     feedrate = homing_feedrate[axis]/2 ;
 #endif
     plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-    st_synchronize();
+    //finally, approach endstop slowly
+	st_synchronize();
 #ifdef DELTA
     // retrace by the amount specified in endstop_adj
     if (endstop_adj[axis] * axis_home_dir < 0) {
@@ -1054,7 +1072,7 @@ static void homeaxis(int axis) {
         servos[servo_endstops[axis]].write(servo_endstop_angles[axis * 2 + 1]);
       }
     #endif
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+#if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
     if (axis==Z_AXIS) retract_z_probe();
 #endif
     
@@ -1066,9 +1084,9 @@ void process_commands()
 {
   unsigned long codenum; //throw away variable
   char *starpos = NULL;
-#ifdef ENABLE_AUTO_BED_LEVELING
+
   float x_tmp, y_tmp, z_tmp, real_z;
-#endif
+
   if(code_seen('G'))
   {
     switch((int)code_value())
@@ -1139,9 +1157,7 @@ void process_commands()
       break;
       #endif //FWRETRACT
     case 28: //G28 Home all Axis one at a time
-#ifdef ENABLE_AUTO_BED_LEVELING
       plan_bed_level_matrix.set_to_identity();  //Reset the plane ("erase" all leveling data)
-#endif //ENABLE_AUTO_BED_LEVELING
 
 
       saved_feedrate = feedrate;
@@ -1154,7 +1170,7 @@ void process_commands()
       for(int8_t i=0; i < NUM_AXIS; i++) {
         destination[i] = current_position[i];
       }
-      feedrate = 0.0;
+       feedrate = 0.0;
 
 #ifdef DELTA
           // A delta can only safely home all axis at the same time
@@ -1190,11 +1206,11 @@ void process_commands()
 
       home_all_axis = !((code_seen(axis_codes[0])) || (code_seen(axis_codes[1])) || (code_seen(axis_codes[2])));
 
-      #if Z_HOME_DIR > 0                      // If homing away from BED do Z first
-      if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
-        HOMEAXIS(Z);
+      if (home_dir[Z_AXIS] > 0){                      // If homing away from BED do Z first
+		if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
+			HOMEAXIS(Z);
+		}
       }
-      #endif
 
       #ifdef QUICK_HOME
       if((home_all_axis)||( code_seen(axis_codes[X_AXIS]) && code_seen(axis_codes[Y_AXIS])) )  //first diagonal move
@@ -1202,15 +1218,16 @@ void process_commands()
         current_position[X_AXIS] = 0;current_position[Y_AXIS] = 0;
 
        #ifndef DUAL_X_CARRIAGE
-        int x_axis_home_dir = home_dir(X_AXIS);
+        int x_axis_home_dir = home_dir[X_AXIS];
        #else
         int x_axis_home_dir = x_home_dir(active_extruder);
         extruder_duplication_enabled = false;
        #endif
 
         plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-        destination[X_AXIS] = 1.5 * max_length(X_AXIS) * x_axis_home_dir;destination[Y_AXIS] = 1.5 * max_length(Y_AXIS) * home_dir(Y_AXIS);
-        feedrate = homing_feedrate[X_AXIS];
+        destination[X_AXIS] = 1.5 * max_length(X_AXIS) * x_axis_home_dir;destination[Y_AXIS] = 1.5 * max_length(Y_AXIS) * home_dir[Y_AXIS];
+        
+		feedrate = homing_feedrate[X_AXIS];
         if(homing_feedrate[Y_AXIS]<feedrate)
           feedrate =homing_feedrate[Y_AXIS];
         plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
@@ -1268,11 +1285,11 @@ void process_commands()
         }
       }
       
-      #if Z_HOME_DIR < 0                      // If homing towards BED do Z last
+      if (home_dir[Z_AXIS] < 0){                      // If homing towards BED do Z last
         #ifndef Z_SAFE_HOMING
           if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
             #if defined (Z_RAISE_BEFORE_HOMING) && (Z_RAISE_BEFORE_HOMING > 0)
-              destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
+              destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir[Z_AXIS] * (-1);    // Set destination away from bed
               feedrate = max_feedrate[Z_AXIS];
               plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
               st_synchronize();
@@ -1283,7 +1300,7 @@ void process_commands()
           if(home_all_axis) {
             destination[X_AXIS] = round(Z_SAFE_HOMING_X_POINT - bed_level_probe_offset[0]);
             destination[Y_AXIS] = round(Z_SAFE_HOMING_Y_POINT - bed_level_probe_offset[1]);
-            destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
+            destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir[Z_AXIS] * (-1);    // Set destination away from bed
             feedrate = XY_TRAVEL_SPEED;
             current_position[Z_AXIS] = 0;
 			
@@ -1305,7 +1322,7 @@ void process_commands()
 
               current_position[Z_AXIS] = 0;
               plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);			  
-              destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
+              destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir[Z_AXIS] * (-1);    // Set destination away from bed
               feedrate = max_feedrate[Z_AXIS];
               plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
               st_synchronize();
@@ -1322,7 +1339,7 @@ void process_commands()
             }
           }
         #endif
-      #endif
+      }
 
       
      
@@ -1331,11 +1348,9 @@ void process_commands()
           current_position[Z_AXIS]=code_value()+add_homeing[2];
         }
       }
-      #ifdef ENABLE_AUTO_BED_LEVELING
-        if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
-          current_position[Z_AXIS] += -bed_level_probe_offset[2];  //Add Z_Probe offset (the distance is negative)
-        }
-      #endif
+      if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
+        current_position[Z_AXIS] += -bed_level_probe_offset[2];  //Add Z_Probe offset (the distance is negative)
+      }
       plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
 #endif // else DELTA
 
@@ -1349,12 +1364,11 @@ void process_commands()
       endstops_hit_on_purpose();
       break;
 
-#ifdef ENABLE_AUTO_BED_LEVELING
     case 29: // G29 Detailed Z-Probe, probes the bed at 3 points.
         {
-            #if Z_MIN_PIN == -1
-            #error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
-            #endif
+            //#if Z_MIN_PIN == -1
+            //#error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
+            //#endif
 
             st_synchronize();
             // make sure the bed_level_rotation_matrix is identity or the planner will get it incorectly
@@ -1561,7 +1575,6 @@ void process_commands()
             retract_z_probe(); // Retract Z Servo endstop if available
         }
         break;
-#endif // ENABLE_AUTO_BED_LEVELING
     case 90: // G90
       relative_mode = false;
       break;
@@ -2164,30 +2177,30 @@ void process_commands()
       break;
     case 119: // M119
     SERIAL_PROTOCOLLN(MSG_M119_REPORT);
-      #if defined(X_MIN_PIN) && X_MIN_PIN > -1
-        SERIAL_PROTOCOLPGM(MSG_X_MIN);
-        SERIAL_PROTOCOLLN(((READ(X_MIN_PIN)^X_MIN_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
-      #endif
-      #if defined(X_MAX_PIN) && X_MAX_PIN > -1
-        SERIAL_PROTOCOLPGM(MSG_X_MAX);
-        SERIAL_PROTOCOLLN(((READ(X_MAX_PIN)^X_MAX_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
-      #endif
-      #if defined(Y_MIN_PIN) && Y_MIN_PIN > -1
+      if(min_pin[X_AXIS] > -1){
+		SERIAL_PROTOCOLPGM(MSG_X_MIN);
+        SERIAL_PROTOCOLLN(((READ(X_STOP_PIN)^X_MIN_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
+	  }
+	  if(max_pin[X_AXIS] > -1){
+	    SERIAL_PROTOCOLPGM(MSG_X_MAX);
+        SERIAL_PROTOCOLLN(((READ(X_STOP_PIN)^X_MAX_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
+	  }
+	  if(min_pin[Y_AXIS] > -1) {
         SERIAL_PROTOCOLPGM(MSG_Y_MIN);
-        SERIAL_PROTOCOLLN(((READ(Y_MIN_PIN)^Y_MIN_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
-      #endif
-      #if defined(Y_MAX_PIN) && Y_MAX_PIN > -1
+        SERIAL_PROTOCOLLN(((READ(Y_STOP_PIN)^Y_MIN_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
+	  }
+	  if(max_pin[Y_AXIS] > -1){
         SERIAL_PROTOCOLPGM(MSG_Y_MAX);
-        SERIAL_PROTOCOLLN(((READ(Y_MAX_PIN)^Y_MAX_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
-      #endif
-      #if defined(Z_MIN_PIN) && Z_MIN_PIN > -1
+        SERIAL_PROTOCOLLN(((READ(Y_STOP_PIN)^Y_MAX_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
+      }
+	  if(min_pin[Z_AXIS] > -1){
         SERIAL_PROTOCOLPGM(MSG_Z_MIN);
-        SERIAL_PROTOCOLLN(((READ(Z_MIN_PIN)^Z_MIN_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
-      #endif
-      #if defined(Z_MAX_PIN) && Z_MAX_PIN > -1
+        SERIAL_PROTOCOLLN(((READ(Z_STOP_PIN)^Z_MIN_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
+      }
+	  if(max_pin[Z_AXIS] > -1){
         SERIAL_PROTOCOLPGM(MSG_Z_MAX);
-        SERIAL_PROTOCOLLN(((READ(Z_MAX_PIN)^Z_MAX_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
-      #endif
+        SERIAL_PROTOCOLLN(((READ(Z_STOP_PIN)^Z_MAX_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
+      }//#endif
       break;
       //TODO: update for all axis, use for loop
     #ifdef BLINKM  
@@ -2359,19 +2372,26 @@ void process_commands()
           base_max_pos[i] = code_value();
         }
       }
+	  update_home_direction();
     }break;
-    #ifdef ENABLE_AUTO_BED_LEVELING
 	case 212: //M212 - Set probe offset for bed leveling
 	{
-      for(int8_t i=0; i < 3; i++)
-      {
-        if(code_seen(axis_codes[i]))
+      if(!enable_auto_bed_leveling)
+	  {
+		  SERIAL_ECHO("Auto bed level disabled!");
+	  }
+	  else
+	  {
+	    for(int8_t i=0; i < 3; i++)
         {
-          bed_level_probe_offset[i] = code_value();
-        }
-      }
+          if(code_seen(axis_codes[i]))
+          {
+            bed_level_probe_offset[i] = code_value();
+          }
+        } 
+	  }
+	  
     }break;
-    #endif
     case 220: // M220 S<factor in percent>- set speed factor override percentage
     {
       if(code_seen('S'))
@@ -2450,11 +2470,11 @@ void process_commands()
         if (code_seen('S')) {
           servo_position = code_value();
           if ((servo_index >= 0) && (servo_index < NUM_SERVOS)) {
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+#if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
 		      servos[servo_index].attach(0);
 #endif
             servos[servo_index].write(servo_position);
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+#if (PROBE_SERVO_DEACTIVATION_DELAY > 0)
               delay(PROBE_SERVO_DEACTIVATION_DELAY);
               servos[servo_index].detach();
 #endif
@@ -2603,12 +2623,40 @@ void process_commands()
       PID_autotune(temp, e, c);
     }
     break;
+	case 350: // M350 Set microstepping mode. Warning: Steps per unit remains unchanged. S code sets stepping mode for all drivers.
+	{
+		#if defined(X_MS1_PIN) && X_MS1_PIN > -1
+		if(code_seen('S')) for(int i=0;i<=4;i++) microstep_mode(i,code_value());
+		for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) microstep_mode(i,(uint8_t)code_value());
+		if(code_seen('B')) microstep_mode(4,code_value());
+		microstep_readings();
+		#endif
+	}
+	break;
+	case 351: // M351 Toggle MS1 MS2 pins directly, S# determines MS1 or MS2, X# sets the pin high/low.
+	{
+		#if defined(X_MS1_PIN) && X_MS1_PIN > -1
+		if(code_seen('S')) switch((int)code_value())
+		{
+			case 1:
+			for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) microstep_ms(i,code_value(),-1);
+			if(code_seen('B')) microstep_ms(4,code_value(),-1);
+			break;
+			case 2:
+			for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) microstep_ms(i,-1,code_value());
+			if(code_seen('B')) microstep_ms(4,-1,code_value());
+			break;
+		}
+		microstep_readings();
+		#endif
+	}
+	break;
     case 400: // M400 finish all moves
     {
       st_synchronize();
     }
     break;
-#if defined(ENABLE_AUTO_BED_LEVELING) && defined(SERVO_ENDSTOPS)
+#if defined(SERVO_ENDSTOPS)
     case 401:
     {
         engage_z_probe();    // Engage Z Servo endstop if available
@@ -2631,9 +2679,17 @@ void process_commands()
         Config_RetrieveSettings();
     }
     break;
-    case 502: // M502 Revert to default settings
+    case 502: // M502 Revert to default settings (S argument is Printrbot model # for model-specific configuration)
     {
         Config_ResetDefault();
+		if(code_seen('S'))
+		{
+			int ModelNumber = code_value();
+			if(ModelNumber > 0){
+				SERIAL_ECHOPAIR("Set Defaults Model:" , (unsigned long) ModelNumber);
+				setPrintrbotModelDefaults(ModelNumber);
+			}
+		}
     }
     break;
     case 503: // M503 print settings currently in memory
@@ -2641,6 +2697,37 @@ void process_commands()
         Config_PrintSettings();
     }
     break;
+	case 504: // M504 Endstop seek direction
+	for(int8_t i=0; i < NUM_AXIS; i++)
+	{
+		if(code_seen(axis_codes[i]))
+		{
+			home_dir[i] = code_value();
+		}
+		update_home_direction();
+	}
+	break;
+	case 505: // M505 Motor direction
+	for(int8_t i=0; i < NUM_AXIS; i++)
+	{
+		if(code_seen(axis_codes[i]))
+		{
+			reverse_motor[i] = ((code_value()==1)?true:false);
+		}
+	}
+	break;
+	case 506: // M506 Enable autolevel (autotram)
+		if(code_seen('S'))
+		{
+			int enable = code_value();
+			if(enable == 1){
+				enable_auto_bed_leveling = true;
+			}
+			else if(enable == 0){
+				enable_auto_bed_leveling = false;
+			}
+		}
+	break;
     #ifdef ABORT_ON_ENDSTOP_HIT_FEATURE_ENABLED
     case 540:
     {
@@ -2845,34 +2932,6 @@ void process_commands()
         if(code_seen('P')) channel=code_value();
         if(code_seen('S')) current=code_value();
         digitalPotWrite(channel, current);
-      #endif
-    }
-    break;
-    case 350: // M350 Set microstepping mode. Warning: Steps per unit remains unchanged. S code sets stepping mode for all drivers.
-    {
-      #if defined(X_MS1_PIN) && X_MS1_PIN > -1
-        if(code_seen('S')) for(int i=0;i<=4;i++) microstep_mode(i,code_value());
-        for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) microstep_mode(i,(uint8_t)code_value());
-        if(code_seen('B')) microstep_mode(4,code_value());
-        microstep_readings();
-      #endif
-    }
-    break;
-    case 351: // M351 Toggle MS1 MS2 pins directly, S# determines MS1 or MS2, X# sets the pin high/low.
-    {
-      #if defined(X_MS1_PIN) && X_MS1_PIN > -1
-      if(code_seen('S')) switch((int)code_value())
-      {
-        case 1:
-          for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) microstep_ms(i,code_value(),-1);
-          if(code_seen('B')) microstep_ms(4,code_value(),-1);
-          break;
-        case 2:
-          for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) microstep_ms(i,-1,code_value());
-          if(code_seen('B')) microstep_ms(4,-1,code_value());
-          break;
-      }
-      microstep_readings();
       #endif
     }
     break;
@@ -3504,4 +3563,250 @@ bool setTargetedHotend(int code){
   }
   return false;
 }
+
+#define STEPS_EXT_WADES 590
+#define STEPS_EXT_ALUMINUM 94.5
+#define STEPS_Z_ACME_1_4_16	2020
+#define STEPS_Z_ACME_3_8_12 1511.57
+#define STEPS_Z_5_16_18	2272.72
+#define STEPS_PULLEY_XL 63.36
+#define STEPS_PULLEY_GT2 80
+#define STEPS_PULLEY_SAND_DRUM 84.4
+#define STEPS_PULLEY_SAND_DISC 119 
+
+bool setPrintrbotModelDefaults(int modelNumber){
+	
+	float target_steps_per_unit[4];
+	float target_max_pos[3];
+	
+	// set home direction (endstop seek direction to default for most models) -- will change in individual cases, if necessary:
+	home_dir[X_AXIS] = -1;
+	home_dir[Y_AXIS] = -1;
+	home_dir[Z_AXIS] = -1;
+	
+	// default to auto bed leveling off - set (below) for the handful of models that do perform auto-level:
+	enable_auto_bed_leveling = false;
+	
+	// default to no motors reversed, exceptions changed below:
+	reverse_motor[X_AXIS] = false;
+	reverse_motor[Y_AXIS] = false;
+	reverse_motor[Z_AXIS] = false;
+	reverse_motor[E_AXIS] = false;
+	
+	switch(modelNumber)
+	{
+		case 1111: // original
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 130;
+			target_max_pos[Y_AXIS] = 130;
+			target_max_pos[Z_AXIS] = 130;
+			reverse_motor[Y_AXIS] = true;
+			reverse_motor[Z_AXIS] = true;
+			break;
+		case 1305: // Simple Beta
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_SAND_DISC;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_SAND_DISC;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_1_4_16;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 100;
+			target_max_pos[Y_AXIS] = 100;
+			target_max_pos[Z_AXIS] = 100;
+			reverse_motor[Y_AXIS] = true;
+			reverse_motor[Z_AXIS] = true;
+			break;
+		case 1310: // Simple Makers V1
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_SAND_DISC;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_SAND_DISC;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_1_4_16;
+			target_steps_per_unit[3] = 102;
+			target_max_pos[X_AXIS] = 100;
+			target_max_pos[Y_AXIS] = 100;
+			target_max_pos[Z_AXIS] = 100;
+			reverse_motor[Y_AXIS] = true;
+			reverse_motor[Z_AXIS] = true;
+			break;
+		case 1312: // Simple Maker V2
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_SAND_DRUM;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_SAND_DRUM;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_1_4_16;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 100;
+			target_max_pos[Y_AXIS] = 100;
+			target_max_pos[Z_AXIS] = 100;
+			reverse_motor[Y_AXIS] = true;
+			reverse_motor[Z_AXIS] = true;
+			reverse_motor[E_AXIS] = true;  
+			break;
+		case 1401: // Simple Maker V3 (early 2014)
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_SAND_DRUM;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_SAND_DRUM;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_1_4_16;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 100;
+			target_max_pos[Y_AXIS] = 100;
+			target_max_pos[Z_AXIS] = 100;
+			reverse_motor[Y_AXIS] = true;
+			reverse_motor[Z_AXIS] = true;
+			reverse_motor[E_AXIS] = true;
+			break;
+		case 1405: // Simple Maker V4 (late 2014)
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_1_4_16;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 100;
+			target_max_pos[Y_AXIS] = 100;
+			target_max_pos[Z_AXIS] = 100;
+			home_dir[Y_AXIS] = 1;
+			reverse_motor[X_AXIS] = true;
+			reverse_motor[Z_AXIS] = true;
+			reverse_motor[E_AXIS] = true;
+			enable_auto_bed_leveling = true;
+			break;
+		case 1403: // Simple Metal
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_1_4_16;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 150;
+			target_max_pos[Y_AXIS] = 150;
+			target_max_pos[Z_AXIS] = 150;
+			home_dir[Y_AXIS] = 1;
+			reverse_motor[E_AXIS] = true;
+			reverse_motor[Y_AXIS] = true;
+			enable_auto_bed_leveling = true;
+			break;
+		case 1307: // Jr V1
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 115;
+			target_max_pos[Y_AXIS] = 120;
+			target_max_pos[Z_AXIS] = 80;
+			break;
+		case 1402: // Jr V2
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_3_8_12;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 150;
+			target_max_pos[Y_AXIS] = 150;
+			target_max_pos[Z_AXIS] = 150;
+			break;
+		case 1302: // LC V1
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 130;
+			target_max_pos[Y_AXIS] = 150;
+			target_max_pos[Z_AXIS] = 120;
+			break;
+		case 1308: // LC V2
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 150;
+			target_max_pos[Y_AXIS] = 150;
+			target_max_pos[Z_AXIS] = 150;
+			break;
+		case 1303: // Plus V1
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 200;
+			target_max_pos[Y_AXIS] = 200;
+			target_max_pos[Z_AXIS] = 200;
+			break;
+		case 1306: // Plus V2
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 200;
+			target_max_pos[Y_AXIS] = 200;
+			target_max_pos[Z_AXIS] = 200;
+			break;
+		case 1311: // Plus V2.1
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 185;
+			target_max_pos[Y_AXIS] = 220;
+			target_max_pos[Z_AXIS] = 200;
+			break;
+		case 1404: // Plus V2.2
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_3_8_12;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 250;
+			target_max_pos[Y_AXIS] = 250;
+			target_max_pos[Z_AXIS] = 250;
+			break;
+		case 1212: // Go V1
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_XL;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_5_16_18;
+			target_steps_per_unit[3] = STEPS_EXT_WADES;
+			target_max_pos[X_AXIS] = 200;
+			target_max_pos[Y_AXIS] = 200;
+			target_max_pos[Z_AXIS] = 150;
+			break;
+		case 1407: // Go V2 Small
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_3_8_12;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 200;
+			target_max_pos[Y_AXIS] = 200;
+			target_max_pos[Z_AXIS] = 150;
+			break;
+		case 1406: // Go V2 Medium
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_3_8_12;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 400;
+			target_max_pos[Y_AXIS] = 200;
+			target_max_pos[Z_AXIS] = 200;
+			break;
+		case 1408: // Go V2 Large
+			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Y_AXIS] = STEPS_PULLEY_GT2;
+			target_steps_per_unit[Z_AXIS] = STEPS_Z_ACME_3_8_12;
+			target_steps_per_unit[3] = STEPS_EXT_ALUMINUM;
+			target_max_pos[X_AXIS] = 600;
+			target_max_pos[Y_AXIS] = 300;
+			target_max_pos[Z_AXIS] = 300;
+			break;
+	}
+	
+	// Extruder
+	if(target_steps_per_unit[3] < 20.0) {
+		float factor = axis_steps_per_unit[3] / target_steps_per_unit[3]; // increase e constants if M92 E14 is given for netfab.
+		max_e_jerk *= factor;
+		max_feedrate[3] *= factor;
+		axis_steps_per_sqr_second[3] *= factor;
+	}
+	axis_steps_per_unit[3] = target_steps_per_unit[3];  //M92
+	// X,Y,Z, M211 X,Y,Z
+	int i;
+	for(i=0;i<3;i++)
+	{
+		axis_steps_per_unit[i] = target_steps_per_unit[i];  //M92 value
+		base_max_pos[i] = target_max_pos[i];                //M211 value
+	}
+	
+	//update variables that change as a result of home dir changes:
+	update_home_direction();
+}
+
 

@@ -37,7 +37,7 @@ void _EEPROM_readData(int &pos, uint8_t* value, uint8_t size)
 // the default values are used whenever there is a change to the data, to prevent
 // wrong data being written to the variables.
 // ALSO:  always make sure the variables in the Store and retrieve sections are in the same order.
-#define EEPROM_VERSION "V11"
+#define EEPROM_VERSION "V12"
 
 #ifdef EEPROM_SETTINGS
 void Config_StoreSettings() 
@@ -94,6 +94,14 @@ void Config_StoreSettings()
   EEPROM_WRITE_VAR(i,base_max_pos[1]);
   EEPROM_WRITE_VAR(i,base_min_pos[2]);
   EEPROM_WRITE_VAR(i,base_max_pos[2]);
+  EEPROM_WRITE_VAR(i,home_dir[0]);
+  EEPROM_WRITE_VAR(i,home_dir[1]);
+  EEPROM_WRITE_VAR(i,home_dir[2]);
+  EEPROM_WRITE_VAR(i,reverse_motor[0]);
+  EEPROM_WRITE_VAR(i,reverse_motor[1]);
+  EEPROM_WRITE_VAR(i,reverse_motor[2]);
+  EEPROM_WRITE_VAR(i,reverse_motor[3]);
+  EEPROM_WRITE_VAR(i,enable_auto_bed_leveling);
   char ver2[4]=EEPROM_VERSION;
   i=EEPROM_OFFSET;
   EEPROM_WRITE_VAR(i,ver2); // validate data
@@ -189,7 +197,6 @@ void Config_PrintSettings()
     SERIAL_ECHOPAIR(" Y" , base_max_pos[1] );
     SERIAL_ECHOPAIR(" Z" , base_max_pos[2] );
     SERIAL_ECHOLN("");
-#ifdef ENABLE_AUTO_BED_LEVELING
     SERIAL_ECHO_START;
     SERIAL_ECHOLNPGM("Bed probe offset (mm):");
     SERIAL_ECHO_START;
@@ -197,7 +204,26 @@ void Config_PrintSettings()
     SERIAL_ECHOPAIR(" Y" , bed_level_probe_offset[1] );
     SERIAL_ECHOPAIR(" Z" , bed_level_probe_offset[2] );
     SERIAL_ECHOLN("");
-#endif
+	SERIAL_ECHO_START;
+	SERIAL_ECHOLNPGM("Endstop seek direction:");
+	SERIAL_ECHO_START;
+	SERIAL_ECHOPAIR("  M504 X" ,(float)home_dir[0]);
+	SERIAL_ECHOPAIR(" Y" ,(float)home_dir[1]);
+	SERIAL_ECHOPAIR(" Z" ,(float)home_dir[2]);
+	SERIAL_ECHOLN("");
+	SERIAL_ECHO_START;
+	SERIAL_ECHOLNPGM("Motors reversed:");
+	SERIAL_ECHO_START;
+	SERIAL_ECHOPAIR("  M505 X" ,(long unsigned int)reverse_motor[0]);
+	SERIAL_ECHOPAIR(" Y" ,(long unsigned int)reverse_motor[1]);
+	SERIAL_ECHOPAIR(" Z" ,(long unsigned int)reverse_motor[2]);
+	SERIAL_ECHOPAIR(" E" ,(long unsigned int)reverse_motor[3]);
+	SERIAL_ECHOLN("");
+	SERIAL_ECHO_START;
+	SERIAL_ECHOLNPGM("Auto leveling:");
+	SERIAL_ECHO_START;
+	SERIAL_ECHOPAIR("  M506 ",(long unsigned int) enable_auto_bed_leveling);
+	SERIAL_ECHOLN("");
 } 
 #endif
 
@@ -262,7 +288,17 @@ void Config_RetrieveSettings()
         EEPROM_READ_VAR(i,base_max_pos[1]);
         EEPROM_READ_VAR(i,base_min_pos[2]);
         EEPROM_READ_VAR(i,base_max_pos[2]);
-
+		EEPROM_READ_VAR(i,home_dir[0]);
+		EEPROM_READ_VAR(i,home_dir[1]);
+		EEPROM_READ_VAR(i,home_dir[2]);
+		EEPROM_READ_VAR(i,reverse_motor[0]);
+		EEPROM_READ_VAR(i,reverse_motor[1]);
+		EEPROM_READ_VAR(i,reverse_motor[2]);
+		EEPROM_READ_VAR(i,reverse_motor[3]);
+		EEPROM_READ_VAR(i,enable_auto_bed_leveling);
+		
+		update_home_direction(); // updates parameters related to motor direction / home direction which were previously defined in preprocessor
+		
 		// Call updatePID (similar to when we have processed M301)
 		updatePID();
         SERIAL_ECHO_START;
@@ -313,11 +349,9 @@ void Config_ResetDefault()
     absPreheatHPBTemp = ABS_PREHEAT_HPB_TEMP;
     absPreheatFanSpeed = ABS_PREHEAT_FAN_SPEED;
 #endif
-#ifdef ENABLE_AUTO_BED_LEVELING
     bed_level_probe_offset[0] = X_PROBE_OFFSET_FROM_EXTRUDER_DEFAULT;
     bed_level_probe_offset[1] = Y_PROBE_OFFSET_FROM_EXTRUDER_DEFAULT;
     bed_level_probe_offset[2] = Z_PROBE_OFFSET_FROM_EXTRUDER_DEFAULT;
-#endif
 #ifdef DOGLCD
     lcd_contrast = DEFAULT_LCD_CONTRAST;
 #endif
@@ -340,7 +374,80 @@ void Config_ResetDefault()
 	base_max_pos[0] = X_MAX_POS_DEFAULT;
 	base_max_pos[1] = Y_MAX_POS_DEFAULT;
 	base_max_pos[2] = Z_MAX_POS_DEFAULT;
+	home_dir[X_AXIS] = X_HOME_DEFAULT;
+	home_dir[Y_AXIS] = Y_HOME_DEFAULT;
+	home_dir[Z_AXIS] = Z_HOME_DEFAULT;
+	reverse_motor[X_AXIS] = X_MOTOR_REVERSE_DEFAULT;
+	reverse_motor[Y_AXIS] = Y_MOTOR_REVERSE_DEFAULT;
+	reverse_motor[Z_AXIS] = Z_MOTOR_REVERSE_DEFAULT;
+	reverse_motor[E_AXIS] = E_MOTOR_REVERSE_DEFAULT;
+	enable_auto_bed_leveling = ENABLE_AUTO_BED_LEVELING_DEFAULT;
+	
+	update_home_direction(); // updates parameters related to motor direction / home direction which were previously defined in preprocessor
 
 	SERIAL_ECHO_START;
 	SERIAL_ECHOLNPGM("Hardcoded Default Settings Loaded");
+}
+
+void update_home_direction(void)
+{
+	#ifdef MANUAL_HOME_POSITIONS  // Use manual limit switch locations
+	home_pos[X_AXIS] = MANUAL_X_HOME_POS;
+	home_pos[Y_AXIS] = MANUAL_Y_HOME_POS;
+	home_pos[Z_AXIS] = MANUAL_Z_HOME_POS;
+	#else //Set min/max homing switch positions based upon homing direction and min/max travel limits
+	//X axis
+	if(home_dir[X_AXIS]== -1)
+	{
+		#ifdef BED_CENTER_AT_0_0
+		home_pos[X_AXIS] = X_MAX_LENGTH * -0.5;
+		#else
+		home_pos[X_AXIS] = base_min_pos[X_AXIS];
+		#endif //BED_CENTER_AT_0_0
+		min_pin[X_AXIS] = X_STOP_PIN;
+		max_pin[X_AXIS] = -1;
+	}
+	else
+	{
+		#ifdef BED_CENTER_AT_0_0
+		home_pos[X_AXIS] = X_MAX_LENGTH * 0.5;
+		#else
+		home_pos[X_AXIS] = base_max_pos[X_AXIS];
+		#endif //BED_CENTER_AT_0_0
+		min_pin[X_AXIS] = -1;
+		max_pin[X_AXIS] = X_STOP_PIN;
+	}
+	//Y axis
+	if(home_dir[Y_AXIS]== -1)
+	{
+		#ifdef BED_CENTER_AT_0_0
+		home_pos[Y_AXIS] = Y_MAX_LENGTH * -0.5;
+		#else
+		home_pos[Y_AXIS] = base_min_pos[Y_AXIS];
+		#endif //BED_CENTER_AT_0_0
+		min_pin[Y_AXIS] = Y_STOP_PIN;
+		max_pin[Y_AXIS] = -1;
+	}
+	else
+	{
+		#ifdef BED_CENTER_AT_0_0
+		home_pos[Y_AXIS] = Y_MAX_LENGTH * 0.5;
+		#else
+		home_pos[Y_AXIS] = base_max_pos[Y_AXIS];
+		#endif //BED_CENTER_AT_0_0
+		min_pin[Y_AXIS] = -1;
+		max_pin[Y_AXIS] = Y_STOP_PIN;
+	}
+	// Z axis
+	if(home_dir[Z_AXIS]== -1){
+		home_pos[Z_AXIS] = base_min_pos[Z_AXIS];
+		min_pin[Z_AXIS] = Z_STOP_PIN;
+		max_pin[Z_AXIS] = -1;
+	}
+	else{
+		home_pos[Z_AXIS] = base_max_pos[Z_AXIS];
+		min_pin[Z_AXIS] = -1;
+		max_pin[Z_AXIS] = Z_STOP_PIN;
+	}
+	#endif //End auto min/max positions
 }

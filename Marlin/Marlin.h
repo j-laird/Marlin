@@ -211,6 +211,13 @@ extern float min_pos[3];
 extern float max_pos[3];
 extern bool axis_known_position[3];
 extern int fanSpeed;
+extern bool enable_auto_bed_leveling;
+extern int home_dir[3];
+extern int home_pos[3];
+extern int min_pin[3];  
+extern int max_pin[3];  
+extern bool reverse_motor[4]; 
+
 #ifdef BARICUDA
 extern int ValvePressure;
 extern int EtoPPressure;
@@ -236,7 +243,5 @@ extern uint8_t active_extruder;
 extern float base_min_pos[];
 extern float base_max_pos[];
 
-#ifdef ENABLE_AUTO_BED_LEVELING
 extern float bed_level_probe_offset[];
-#endif
 #endif

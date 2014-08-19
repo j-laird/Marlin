@@ -19,7 +19,6 @@
 #include <math.h>
 #include "Marlin.h"
 
-#ifdef ENABLE_AUTO_BED_LEVELING
 #include "vector_3.h"
 
 vector_3::vector_3()
@@ -108,15 +107,11 @@ void apply_rotation_xyz(matrix_3x3 matrix, float &x, float& y, float& z)
 
 matrix_3x3 matrix_3x3::create_from_rows(vector_3 row_0, vector_3 row_1, vector_3 row_2)
 {
-        //row_0.debug("row_0");
-        //row_1.debug("row_1");
-        //row_2.debug("row_2");
 	matrix_3x3 new_matrix;
 	new_matrix.matrix[0] = row_0.x; new_matrix.matrix[1] = row_0.y; new_matrix.matrix[2] = row_0.z; 
 	new_matrix.matrix[3] = row_1.x; new_matrix.matrix[4] = row_1.y; new_matrix.matrix[5] = row_1.z; 
 	new_matrix.matrix[6] = row_2.x; new_matrix.matrix[7] = row_2.y; new_matrix.matrix[8] = row_2.z; 
-        //new_matrix.debug("new_matrix");
-        
+
 	return new_matrix;
 }
 
@@ -132,16 +127,10 @@ matrix_3x3 matrix_3x3::create_look_at(vector_3 target)
     vector_3 z_row = target.get_normal();
     vector_3 x_row = vector_3(1, 0, -target.x/target.z).get_normal();
     vector_3 y_row = vector_3(0, 1, -target.y/target.z).get_normal();
-
-   // x_row.debug("x_row");
-   // y_row.debug("y_row");
-   // z_row.debug("z_row");
-
  
      // create the matrix already correctly transposed
     matrix_3x3 rot = matrix_3x3::create_from_rows(x_row, y_row, z_row);
 
- //   rot.debug("rot");
     return rot;
 }
 
@@ -172,6 +161,4 @@ void matrix_3x3::debug(char* title)
 		SERIAL_PROTOCOLPGM("\n");
 	}
 }
-
-#endif // #ifdef ENABLE_AUTO_BED_LEVELING
 

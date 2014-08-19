@@ -17,6 +17,7 @@
 // build by the user have been successfully uploaded into firmware.
 #define STRING_VERSION_CONFIG_H __DATE__ " " __TIME__ // build date and time
 #define STRING_CONFIG_H_AUTHOR "(j-laird, Printrbot firmware)" // Who made the changes.
+#define FIRMWARE_REV "V6"
 
 // SERIAL_PORT selects which serial port should be used for communication with the host.
 // This allows the connection of wireless adapters (for instance) to non-default port pins.
@@ -290,18 +291,19 @@ const bool Z_MAX_ENDSTOP_INVERTING = false; // set to true to invert the logic o
 #define DISABLE_Z true
 #define DISABLE_E false // For all extruders
 
-#define INVERT_X_DIR true    // for Mendel set to false, for Orca set to true
-#define INVERT_Y_DIR true    // for Mendel set to true, for Orca set to false
-#define INVERT_Z_DIR true    // for Mendel set to false, for Orca set to true
-#define INVERT_E0_DIR false  // for direct drive extruder v9 set to true, for geared extruder set to false
+// Note X-E have been changed to software configurable, so names here have been changed as well:
+#define X_MOTOR_REVERSE_DEFAULT true    // for Mendel set to false, for Orca set to true
+#define Y_MOTOR_REVERSE_DEFAULT true    // for Mendel set to true, for Orca set to false
+#define Z_MOTOR_REVERSE_DEFAULT true    // for Mendel set to false, for Orca set to true
+#define E_MOTOR_REVERSE_DEFAULT false  // for direct drive extruder v9 set to true, for geared extruder set to false
 #define INVERT_E1_DIR false  // for direct drive extruder v9 set to true, for geared extruder set to false
 #define INVERT_E2_DIR false  // for direct drive extruder v9 set to true, for geared extruder set to false
 
 // ENDSTOP SETTINGS:
 // Sets direction of endstops when homing; 1=MAX, -1=MIN
-#define X_HOME_DIR -1
-#define Y_HOME_DIR 1
-#define Z_HOME_DIR -1
+#define X_HOME_DEFAULT -1
+#define Y_HOME_DEFAULT 1
+#define Z_HOME_DEFAULT -1
 
 #define min_software_endstops true // If true, axis won't move to coordinates less than HOME_POS.
 #define max_software_endstops true  // If true, axis won't move to coordinates greater than the defined lengths below.
@@ -314,14 +316,12 @@ const bool Z_MAX_ENDSTOP_INVERTING = false; // set to true to invert the logic o
 #define Z_MAX_POS_DEFAULT 150
 #define Z_MIN_POS_DEFAULT 0
 
-#define X_MAX_LENGTH (base_max_pos[0] - base_min_pos[0])
-#define Y_MAX_LENGTH (base_max_pos[1] - base_min_pos[1])
-#define Z_MAX_LENGTH (base_max_pos[2] - base_min_pos[2])
+#define X_MAX_LENGTH (base_max_pos[X_AXIS] - base_min_pos[X_AXIS])
+#define Y_MAX_LENGTH (base_max_pos[Y_AXIS] - base_min_pos[Y_AXIS])
+#define Z_MAX_LENGTH (base_max_pos[Z_AXIS] - base_min_pos[Z_AXIS])
 //============================= Bed Auto Leveling ===========================
 
-#define ENABLE_AUTO_BED_LEVELING // Delete the comment to enable (remove // at the start of the line)
-
-#ifdef ENABLE_AUTO_BED_LEVELING
+  #define ENABLE_AUTO_BED_LEVELING_DEFAULT true
 
   // these are the positions on the bed to do the probing
   #define LEFT_PROBE_BED_POSITION 10
@@ -376,7 +376,6 @@ const bool Z_MAX_ENDSTOP_INVERTING = false; // set to true to invert the logic o
     #define ACCURATE_BED_LEVELING_POINTS 2
   #endif
   
-#endif
 
 // The position of the homing switches
 //#define MANUAL_HOME_POSITIONS  // If defined, MANUAL_*_HOME_POS below will be used
