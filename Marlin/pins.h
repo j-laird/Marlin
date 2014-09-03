@@ -1503,7 +1503,7 @@
   http://www.pjrc.com/teensy/teensyduino.html
 * See http://reprap.org/wiki/Printrboard for more info
 ****************************************************************************************/
-#if MOTHERBOARD == 8 || MOTHERBOARD == 81
+#if MOTHERBOARD == 8 || MOTHERBOARD == 81 || MOTHERBOARD == 84
 #define KNOWN_BOARD 1
 #define AT90USB 1286  // Disable MarlinSerial etc.
 
@@ -1559,23 +1559,37 @@
   #define Z_STOP_PIN         15
   #define TEMP_0_PIN          7  // Extruder / Analog pin numbering
   #define TEMP_BED_PIN        6  // Bed / Analog pin numbering
-#else  // Printrboard
+#elif MOTHERBOARD == 84 //Printrboard rev F
+  #define X_STOP_PIN         35
+  #define Y_STOP_PIN         12  // Y stop moved from rev D->F
+  #define Z_STOP_PIN         36
+  #define TEMP_0_PIN          1  // Extruder / Analog pin numbering
+  #define TEMP_BED_PIN        0  // Bed / Analog pin numbering
+  #define SDSS               20  // SDSS moved from rev D->F
+#else  // Printrboard rev A to E
   #define X_STOP_PIN         35
   #define Y_STOP_PIN          8
   #define Z_STOP_PIN         36
   #define TEMP_0_PIN          1  // Extruder / Analog pin numbering
   #define TEMP_BED_PIN        0  // Bed / Analog pin numbering
+  #define SDSS               26
 #endif
 
 #define TEMP_1_PIN         2
 #define TEMP_2_PIN         3
 
 #define SDPOWER            -1
-#define SDSS                26
 #define LED_PIN            -1
 #define PS_ON_PIN          -1
 #define KILL_PIN           -1
 #define ALARM_PIN          -1
+
+#define DAC_STEPPER_CURRENT
+#define DAC_STEPPER_ADDRESS	0
+#define DAC_STEPPER_ORDER 	{3,2,1,0}
+#define DAC_STEPPER_MAX 	3520
+#define DAC_STEPPER_VREF 	1 //internal Vref, gain 1x = 2.048V
+#define DAC_STEPPER_GAIN	0
 
 #ifdef ULTRA_LCD
   #define BEEPER -1

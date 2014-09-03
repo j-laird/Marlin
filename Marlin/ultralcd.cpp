@@ -53,8 +53,10 @@ static void lcd_prepare_menu();
 static void lcd_move_menu();
 static void lcd_control_menu();
 static void lcd_control_temperature_menu();
+#ifndef DISABLE_PREHEAT_MENU
 static void lcd_control_temperature_preheat_pla_settings_menu();
 static void lcd_control_temperature_preheat_abs_settings_menu();
+#endif
 #ifndef DISABLE_LCD_MOTION_MENU
 static void lcd_control_motion_menu();
 #endif
@@ -671,11 +673,14 @@ static void lcd_control_temperature_menu()
     MENU_ITEM_EDIT(float3, MSG_PID_C, &Kc, 1, 9990);
 # endif//PID_ADD_EXTRUSION_RATE
 #endif//PIDTEMP
+#ifndef DISABLE_PREHEAT_MENU
     MENU_ITEM(submenu, MSG_PREHEAT_PLA_SETTINGS, lcd_control_temperature_preheat_pla_settings_menu);
     MENU_ITEM(submenu, MSG_PREHEAT_ABS_SETTINGS, lcd_control_temperature_preheat_abs_settings_menu);
+#endif
     END_MENU();
 }
 
+#ifndef DISABLE_PREHEAT_MENU
 static void lcd_control_temperature_preheat_pla_settings_menu()
 {
     START_MENU();
@@ -705,6 +710,7 @@ static void lcd_control_temperature_preheat_abs_settings_menu()
 #endif
     END_MENU();
 }
+#endif
 
 #ifndef DISABLE_LCD_MOTION_MENU
 static void lcd_control_motion_menu()

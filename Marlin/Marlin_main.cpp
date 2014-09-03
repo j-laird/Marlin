@@ -170,8 +170,12 @@
 // M600 - Pause for filament change X[pos] Y[pos] Z[relative lift] E[initial retract] L[later retract distance for removal]
 // M666 - set delta endstop adjustemnt
 // M605 - Set dual x-carriage movement mode: S<mode> [ X<duplication x-offset> R<duplication temp offset> ]
-// M907 - Set digital trimpot motor current using axis codes.
-// M908 - Control digital trimpot directly.
+// M907 - Set digital trimpot/DAC motor current using axis codes.
+// M908 - Control digital trimpot/DAC directly.
+// M909 - Print digipot/DAC current value
+// M910 - Commit digipot/DAC value to external EEPROM
+// M350 - Set microstepping mode.
+// M351 - Toggle MS1 MS2 pins directly.
 // M928 - Start SD logging (M928 filename.g) - ended by M29
 // M999 - Restart after being stopped by error
 
@@ -314,7 +318,7 @@ void serial_echopair_P(const char *s_P, double v)
     { serialprintPGM(s_P); SERIAL_ECHO(v); }
 void serial_echopair_P(const char *s_P, unsigned long v)
     { serialprintPGM(s_P); SERIAL_ECHO(v); }
-bool setPrintrbotModelDefaults(int);
+void setPrintrbotModelDefaults(int);
 
 extern "C"{
   extern unsigned int __bss_end;
@@ -490,6 +494,9 @@ void setup()
   tp_init();    // Initialize temperature loop
   plan_init();  // Initialize planner;
   watchdog_init();
+#ifdef DAC_STEPPER_CURRENT
+  dac_init(); //Initialize DAC to set stepper current
+#endif
   st_init();    // Initialize stepper, this enables interrupts!
   setup_photpin();
   servo_init();
@@ -757,8 +764,7 @@ static inline type array(int axis)			\
     { type temp[3] = { X_##CONFIG, Y_##CONFIG, Z_##CONFIG };\
       return temp[axis];}
 
-//XYZ_DYN_FROM_CONFIG(float, base_home_pos,   HOME_POS);
-//XYZ_DYN_FROM_CONFIG(float, max_length, MAX_LENGTH);
+// note: assignment of base_home_pos, max_length, home dir now dynamically calculated
 
 static float max_length(int axis)
 {
@@ -1025,10 +1031,6 @@ static void homeaxis(int axis) {
 
     // go toward endstop with maximum attempt 1.5x full axis length
 	destination[axis] = 1.5 * max_length(axis) * axis_home_dir;
-	// JL TODO: REMOVE DEBUG CODE:
-	//SERIAL_ECHOPAIR("Set Destination:" , destination[axis]);
-	//SERIAL_ECHOPAIR("minpin:", (float) min_pin[axis]);
-	//SERIAL_ECHOPAIR("maxpin:", (float) max_pin[axis]);
 	
 	feedrate = homing_feedrate[axis];
     plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
@@ -1366,10 +1368,6 @@ void process_commands()
 
     case 29: // G29 Detailed Z-Probe, probes the bed at 3 points.
         {
-            //#if Z_MIN_PIN == -1
-            //#error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
-            //#endif
-
             st_synchronize();
             // make sure the bed_level_rotation_matrix is identity or the planner will get it incorectly
             //vector_3 corrected_position = plan_get_position_mm();
@@ -2683,12 +2681,8 @@ void process_commands()
     {
         Config_ResetDefault();
 		if(code_seen('S'))
-		{
-			int ModelNumber = code_value();
-			if(ModelNumber > 0){
-				SERIAL_ECHOPAIR("Set Defaults Model:" , (unsigned long) ModelNumber);
-				setPrintrbotModelDefaults(ModelNumber);
-			}
+		{ 
+			setPrintrbotModelDefaults(code_value());
 		}
     }
     break;
@@ -2907,7 +2901,7 @@ void process_commands()
     break;
     #endif //DUAL_X_CARRIAGE         
 
-    case 907: // M907 Set digital trimpot motor current using axis codes.
+    case 907: // M907 Set digital trimpot/DAC motor current using axis codes.
     {
       #if defined(DIGIPOTSS_PIN) && DIGIPOTSS_PIN > -1
         for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) digipot_current(i,code_value());
@@ -2923,15 +2917,40 @@ void process_commands()
       #ifdef MOTOR_CURRENT_PWM_E_PIN
         if(code_seen('E')) digipot_current(2, code_value());
       #endif
+      #ifdef DAC_STEPPER_CURRENT
+         if(code_seen('S')) {for(int i=0;i<=4;i++) dac_current_percent(i,code_value()); break;}
+         for(int i=0;i<NUM_AXIS;i++) if(code_seen(axis_codes[i])) dac_current_percent(i,code_value());
+      #endif
     }
     break;
-    case 908: // M908 Control digital trimpot directly.
+    case 908: // M908 Control digital trimpot/DAC directly.
     {
       #if defined(DIGIPOTSS_PIN) && DIGIPOTSS_PIN > -1
         uint8_t channel,current;
         if(code_seen('P')) channel=code_value();
         if(code_seen('S')) current=code_value();
         digitalPotWrite(channel, current);
+      #endif
+      #ifdef DAC_STEPPER_CURRENT
+        uint8_t channel=-1;
+        uint16_t dac_val=0;
+        if(code_seen('P')) channel=code_value();
+        if(code_seen('S')) dac_val=code_value();
+        dac_current_raw(channel, dac_val);
+      #endif
+    }
+    break;
+    case 909: // M909 Print digipot/DAC current value
+    {
+      #ifdef DAC_STEPPER_CURRENT
+        dac_print_values();
+      #endif
+    }
+    break;
+    case 910: // M910 Commit digipot/DAC value to external EEPROM
+    {
+      #ifdef DAC_STEPPER_CURRENT
+        dac_commit_eeprom();
       #endif
     }
     break;
@@ -3574,10 +3593,13 @@ bool setTargetedHotend(int code){
 #define STEPS_PULLEY_SAND_DRUM 84.4
 #define STEPS_PULLEY_SAND_DISC 119 
 
-bool setPrintrbotModelDefaults(int modelNumber){
+void setPrintrbotModelDefaults(int modelNumber){
 	
 	float target_steps_per_unit[4];
 	float target_max_pos[3];
+	
+	if (modelNumber < 1)
+		return;
 	
 	// set home direction (endstop seek direction to default for most models) -- will change in individual cases, if necessary:
 	home_dir[X_AXIS] = -1;
