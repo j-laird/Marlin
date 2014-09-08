@@ -314,7 +314,7 @@ void serial_echopair_P(const char *s_P, double v)
     { serialprintPGM(s_P); SERIAL_ECHO(v); }
 void serial_echopair_P(const char *s_P, unsigned long v)
     { serialprintPGM(s_P); SERIAL_ECHO(v); }
-bool setPrintrbotModelDefaults(int);
+void setPrintrbotModelDefaults(int);
 
 extern "C"{
   extern unsigned int __bss_end;
@@ -757,8 +757,7 @@ static inline type array(int axis)			\
     { type temp[3] = { X_##CONFIG, Y_##CONFIG, Z_##CONFIG };\
       return temp[axis];}
 
-//XYZ_DYN_FROM_CONFIG(float, base_home_pos,   HOME_POS);
-//XYZ_DYN_FROM_CONFIG(float, max_length, MAX_LENGTH);
+// note: assignment of base_home_pos, max_length, home dir now dynamically calculated
 
 static float max_length(int axis)
 {
@@ -1025,10 +1024,6 @@ static void homeaxis(int axis) {
 
     // go toward endstop with maximum attempt 1.5x full axis length
 	destination[axis] = 1.5 * max_length(axis) * axis_home_dir;
-	// JL TODO: REMOVE DEBUG CODE:
-	//SERIAL_ECHOPAIR("Set Destination:" , destination[axis]);
-	//SERIAL_ECHOPAIR("minpin:", (float) min_pin[axis]);
-	//SERIAL_ECHOPAIR("maxpin:", (float) max_pin[axis]);
 	
 	feedrate = homing_feedrate[axis];
     plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
@@ -1366,10 +1361,6 @@ void process_commands()
 
     case 29: // G29 Detailed Z-Probe, probes the bed at 3 points.
         {
-            //#if Z_MIN_PIN == -1
-            //#error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
-            //#endif
-
             st_synchronize();
             // make sure the bed_level_rotation_matrix is identity or the planner will get it incorectly
             //vector_3 corrected_position = plan_get_position_mm();
@@ -2683,12 +2674,8 @@ void process_commands()
     {
         Config_ResetDefault();
 		if(code_seen('S'))
-		{
-			int ModelNumber = code_value();
-			if(ModelNumber > 0){
-				SERIAL_ECHOPAIR("Set Defaults Model:" , (unsigned long) ModelNumber);
-				setPrintrbotModelDefaults(ModelNumber);
-			}
+		{ 
+			setPrintrbotModelDefaults(code_value());
 		}
     }
     break;
@@ -3574,10 +3561,13 @@ bool setTargetedHotend(int code){
 #define STEPS_PULLEY_SAND_DRUM 84.4
 #define STEPS_PULLEY_SAND_DISC 119 
 
-bool setPrintrbotModelDefaults(int modelNumber){
+void setPrintrbotModelDefaults(int modelNumber){
 	
 	float target_steps_per_unit[4];
 	float target_max_pos[3];
+	
+	if (modelNumber < 1)
+		return;
 	
 	// set home direction (endstop seek direction to default for most models) -- will change in individual cases, if necessary:
 	home_dir[X_AXIS] = -1;

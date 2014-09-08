@@ -89,6 +89,8 @@
 #define ENDSTOPS_ONLY_FOR_HOMING // If defined the endstops will only be used for homing
 
 
+// this section moved in Printrbot firmware to allow for some of the (formerly) preprocessor
+// defined values to be changeable at runtime via M-codes.  -JLAIRD
 
 
 //#define Z_LATE_ENABLE // Enable Z the last moment. Needed if your Z driver overheats.
