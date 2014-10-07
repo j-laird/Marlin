@@ -325,5 +325,5 @@ All values are in mm as usual.
 That's it.. enjoy never having to calibrate your Z endstop neither leveling your bed by hand anymore ;-)
 
 
-
+~end~
 
