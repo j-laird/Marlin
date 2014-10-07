@@ -126,7 +126,7 @@ matrix_3x3 matrix_3x3::create_look_at(vector_3 target)
 {
     vector_3 z_row = target.get_normal();
     vector_3 x_row = vector_3(1, 0, -target.x/target.z).get_normal();
-    vector_3 y_row = vector_3(0, 1, -target.y/target.z).get_normal();
+    vector_3 y_row = vector_3::cross(z_row, x_row).get_normal();
  
      // create the matrix already correctly transposed
     matrix_3x3 rot = matrix_3x3::create_from_rows(x_row, y_row, z_row);
