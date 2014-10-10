@@ -3615,8 +3615,10 @@ void setPrintrbotModelDefaults(int modelNumber){
 			target_max_pos[X_AXIS] = 100;
 			target_max_pos[Y_AXIS] = 100;
 			target_max_pos[Z_AXIS] = 100;
+			reverse_motor[X_AXIS] = true;
 			reverse_motor[Y_AXIS] = true;
 			reverse_motor[Z_AXIS] = true;
+			reverse_motor[E_AXIS] = true;
 			break;
 		case 1312: // Simple Maker V2
 			target_steps_per_unit[X_AXIS] = STEPS_PULLEY_SAND_DRUM;
@@ -3626,6 +3628,7 @@ void setPrintrbotModelDefaults(int modelNumber){
 			target_max_pos[X_AXIS] = 100;
 			target_max_pos[Y_AXIS] = 100;
 			target_max_pos[Z_AXIS] = 100;
+			reverse_motor[X_AXIS] = true;
 			reverse_motor[Y_AXIS] = true;
 			reverse_motor[Z_AXIS] = true;
 			reverse_motor[E_AXIS] = true;  
@@ -3638,6 +3641,7 @@ void setPrintrbotModelDefaults(int modelNumber){
 			target_max_pos[X_AXIS] = 100;
 			target_max_pos[Y_AXIS] = 100;
 			target_max_pos[Z_AXIS] = 100;
+			reverse_motor[X_AXIS] = true;
 			reverse_motor[Y_AXIS] = true;
 			reverse_motor[Z_AXIS] = true;
 			reverse_motor[E_AXIS] = true;
@@ -3665,8 +3669,9 @@ void setPrintrbotModelDefaults(int modelNumber){
 			target_max_pos[Y_AXIS] = 150;
 			target_max_pos[Z_AXIS] = 150;
 			home_dir[Y_AXIS] = 1;
+			reverse_motor[X_AXIS] = true;
+			reverse_motor[Z_AXIS] = true;
 			reverse_motor[E_AXIS] = true;
-			reverse_motor[Y_AXIS] = true;
 			enable_auto_bed_leveling = true;
 			break;
 		case 1307: // Jr V1
