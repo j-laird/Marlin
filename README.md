@@ -1,3 +1,14 @@
+================================================
+READ THIS BEFORE USING BACHELOR/LASSEN RELEASES:
+================================================
+These new versions aim to improve the model-specific setup/configuration process.  Key notes if you have not used these versions before:
+* This version introduces a model # argument (ex., M502 S1405 for a Simple Maker 1405).  Syntax is M502 S<model#>.  Use this to pre-set defaults for:
+* M504: Endstop seek direction (does Y home at min or max?) can now be changed at runtime (ex., M504 X-1 Y1 Z-1 would home X and Z to min, and Y to max, as in Simple Metal 1403 and Simple Maker 1405).  Options for each axis are 1 or -1 (max, min, respectively)
+* M505: Motor reversed - to be used instead of flipping motor connectors.  NOTE: Defaults for model number (using M502) expect all motor connectors to be changed back to non-flipped orientation FIRST.  Start with the M502 defaults for your model, and send new M505 values to toggle if the defaults are not correct. Arguments are 0 or 1 for each axis.
+* M506: Autolevel on/off (ex., M506 S0 would turn off autolevel option).  Argument is S0 or S1
+
+Note: Lassen version to be used on rev F4 Printrboards, and Bachelor version to be used on rev B-D Printrboards.
+
 ==========================
 Marlin 3D Printer Firmware
 ==========================
