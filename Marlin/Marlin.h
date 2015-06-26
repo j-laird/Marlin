@@ -53,7 +53,7 @@
    #ifdef BTENABLED
          #define MYSERIAL bt
    #else
-         #define MYSERIAL Serial
+         #define MYSERIAL HWSerial  // Printrboard-RPi Link
    #endif // BTENABLED
 #else
   #define MYSERIAL MSerial
