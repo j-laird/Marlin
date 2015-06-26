@@ -325,4 +325,8 @@ MarlinSerial MSerial;
 #if defined(AT90USB) && defined (BTENABLED)
    HardwareSerial bt;
 #endif
+// For Printrboard/RPi Link:
+#if defined(AT90USB)
+	HardwareSerial HWSerial;
+#endif
 
